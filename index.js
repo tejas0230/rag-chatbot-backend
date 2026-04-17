@@ -4,13 +4,13 @@ import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import morgan from 'morgan';
-import apiRouter from './routes/index.js';
-import { fromNodeHeaders } from "better-auth/node";
-import { auth } from "./utils/auth.js";
-
+import v1Router from './routes/v1/index.js';
+import { requireAuth } from "./middleware/requireAuth.js";
 const app = express();
 
 app.use(cookieParser(process.env.COOKIE_SECRET));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 const allowedOrigins = [
     'http://localhost:3000'
@@ -49,19 +49,10 @@ app.get("/", (req, res) => {
     return res.redirect(302, `${frontendUrl}/dashboard`);
 });
 
-app.use("/api/v1", apiRouter);
+app.use("/api/v1", v1Router);
 
-// Only mount JSON parsing after Better Auth.
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-app.get("/api/v1/me", async (req, res) => {
-    const session = await auth.api.getSession({
-        headers: fromNodeHeaders(req.headers),
-    });
-
-    if (!session) return res.status(401).json({ error: "Unauthorized" });
-    return res.json(session);
+app.get("/api/v1/me", requireAuth, async (req, res) => {
+    return res.json(req.user);
 });
 
 const PORT = process.env.PORT || 5500;
