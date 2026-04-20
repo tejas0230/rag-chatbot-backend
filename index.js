@@ -9,7 +9,14 @@ import { requireAuth } from "./middleware/requireAuth.js";
 const app = express();
 
 app.use(cookieParser(process.env.COOKIE_SECRET));
-app.use(express.json());
+// Polar (Standard Webhooks) signature verification needs the raw body bytes — not parsed JSON.
+app.use(
+    express.json({
+        verify: (req, _res, buf) => {
+            req.rawBody = buf;
+        },
+    })
+);
 app.use(express.urlencoded({ extended: true }));
 
 const allowedOrigins = [
