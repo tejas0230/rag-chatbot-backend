@@ -4,6 +4,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import morgan from 'morgan';
+import path from "path";
 import v1Router from './routes/v1/index.js';
 import { requireAuth } from "./middleware/requireAuth.js";
 const app = express();
@@ -40,6 +41,17 @@ app.use(
 
 app.use(helmet());
 app.use(morgan('dev'));
+
+// Public widget script (must be embeddable cross-origin)
+app.get("/chatbot-widget.js", (req, res) => {
+    res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+    // Helmet sets Cross-Origin-Resource-Policy: same-origin by default, which blocks
+    // <script src="..."> inclusion from other sites with ERR_BLOCKED_BY_RESPONSE.NotSameOrigin.
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    // Optional, but helps when loading the script via fetch/XHR in some setups.
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    return res.sendFile(path.join(process.cwd(), "chatbot-widget.js"));
+});
 
 app.use((req,res,next)=>{
     console.log(`${req.method} ${req.url}`);

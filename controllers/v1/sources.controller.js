@@ -4,6 +4,7 @@ import { eq, and } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import path from "path";
 import fs from "fs/promises";
+import fsSync from "fs";
 import { sendToQueue } from "../../utils/queue.js";
 import { ingestionJob } from "../../drizzle/schema.js";
 const JOB_QUEUE_NAME = "jobs";
@@ -91,11 +92,12 @@ export const createSource = async (req, res) => {
                 console.error("[createSource] enqueue failed; leaving job as queued", { jobId: newJob.id });
             }
 
-            return res.status(201).json({ sources: [newSource] });
+            return res.status(201).json({ sources: [newSource], jobId: newJob.id });
         }
 
         // ── File sources ──────────────────────────────────────────────────────
         const createdSources = [];
+        const createdJobs = [];
 
         for (const file of files) {
             const mimeType = file.mimetype;
@@ -115,6 +117,9 @@ export const createSource = async (req, res) => {
             await fs.mkdir(projectDir, { recursive: true });
             await fs.writeFile(storagePath, file.buffer);
 
+            const baseUrl = `${req.protocol}://${req.get("host")}`;
+            const fileUrl = `${baseUrl}/api/v1/sources/public/${sourceId}/file`;
+
             const [newSource] = await db
                 .insert(source)
                 .values({
@@ -123,6 +128,7 @@ export const createSource = async (req, res) => {
                     type: sourceType,
                     name: path.basename(file.originalname, path.extname(file.originalname)),
                     filePath: `${projectId}/${sourceId}${ext}`,
+                    url: fileUrl,
                     fileSizeBytes: file.size,
                     mimeType,
                     originalFilename: file.originalname,
@@ -150,9 +156,10 @@ export const createSource = async (req, res) => {
             }
 
             createdSources.push(newSource);
+            createdJobs.push(newJob);
         }
 
-        return res.status(201).json({ sources: createdSources });
+        return res.status(201).json({ sources: createdSources, jobIds: createdJobs.map((job) => job.id) });
 
     } catch (err) {
         console.error("createSource error:", err);
@@ -244,6 +251,60 @@ export const deleteSource = async (req, res) => {
         return res.status(200).json({ message: "Source deleted successfully" });
     } catch (err) {
         console.error("deleteSource error:", err);
+        return res.status(500).json({ error: "Internal server error" });
+    }
+};
+
+export const getPublicSourceFile = async (req, res) => {
+    const { sourceId } = req.params;
+
+    if (!sourceId) {
+        return res.status(400).json({ error: "sourceId is required" });
+    }
+
+    try {
+        const [src] = await db
+            .select({
+                id: source.id,
+                type: source.type,
+                filePath: source.filePath,
+                mimeType: source.mimeType,
+                originalFilename: source.originalFilename,
+            })
+            .from(source)
+            .where(eq(source.id, sourceId))
+            .limit(1);
+
+        if (!src) {
+            return res.status(404).json({ error: "Source not found" });
+        }
+
+        if (src.type === "url") {
+            return res.status(400).json({ error: "This source is a URL, not a file" });
+        }
+
+        if (!src.filePath) {
+            return res.status(404).json({ error: "File not found" });
+        }
+
+        const diskPath = path.resolve(UPLOAD_DIR, src.filePath);
+        if (!diskPath.startsWith(UPLOAD_DIR + path.sep) && diskPath !== UPLOAD_DIR) {
+            return res.status(400).json({ error: "Invalid file path" });
+        }
+
+        if (!fsSync.existsSync(diskPath)) {
+            return res.status(404).json({ error: "File not found" });
+        }
+
+        res.setHeader("Content-Type", src.mimeType || "application/octet-stream");
+        res.setHeader(
+            "Content-Disposition",
+            `inline; filename=\"${(src.originalFilename || "source").replaceAll('\"', "")}\"`
+        );
+
+        return fsSync.createReadStream(diskPath).pipe(res);
+    } catch (err) {
+        console.error("getPublicSourceFile error:", err);
         return res.status(500).json({ error: "Internal server error" });
     }
 };

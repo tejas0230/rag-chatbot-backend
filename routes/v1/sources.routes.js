@@ -1,7 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 import { requireAuth } from "../../middleware/requireAuth.js";
-import { createSource, getSources, deleteSource } from "../../controllers/v1/sources.controller.js";
+import { createSource, getSources, deleteSource, getPublicSourceFile } from "../../controllers/v1/sources.controller.js";
 
 const v1SourcesRouter = Router();
 
@@ -25,6 +25,9 @@ const upload = multer({
         }
     },
 });
+
+// Public file access (no auth)
+v1SourcesRouter.get("/public/:sourceId/file", getPublicSourceFile);
 
 v1SourcesRouter.use(requireAuth);
 
